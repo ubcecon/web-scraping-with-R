@@ -13,7 +13,7 @@ Web scraping from query-based webpages and geocoding.
 
 ## Resources
 Relevant R packages and developer tools:
-- `rvest `(HTML parsing): https://github.com/hadley/rvest
+- `rvest` (HTML parsing): https://github.com/hadley/rvest
 - `tm` (text mining and analysis): http://tm.r-forge.r-project.org/
 - `SelectorGadget` (HTML/CSS analysis): https://selectorgadget.com/
 

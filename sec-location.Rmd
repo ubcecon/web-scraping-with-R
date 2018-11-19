@@ -1,0 +1,189 @@
+---
+title: "sec-location"
+author: "Chiyoung Ahn and Jasmine Hao"
+date: "November 12, 2018"
+# output: html_document
+output:
+  md_document:
+    variant: markdown_github
+---
+*DISCLAIMER: Do not exploit the instruction below to hammer the SEC website; MIT license applies.*
+
+# Cross-industry firm location differences using SEC website
+
+The following procedure aims to 
+
+* scrape the mailing addresses of firms listed in the [SEC website](https://www.sec.gov/edgar/searchedgar/companysearch.html) using `rvest`
+* retrieve physical locations from the mailing addresses using `ggmap`
+* plot the locations on a map using `ggmap` and `ggplot2`
+
+The scraping is down recursively by extracting the firm's identifier through the search page(SIK) and create a url linked to the firm's web page indexed by the firm's identifier.
+
+
+```{r setup, include=TRUE, message=FALSE, warning=FALSE}
+for (pkg in c("rvest","httr","dplyr","stringr","XML","RCurl","ggplot2","reshape","tm","ggmap")){
+ if (!pkg %in% rownames(installed.packages())){install.packages(pkg)}
+}
+library(rvest)
+library(dplyr)
+library(stringr)
+library(ggmap)
+library(XML)
+library(httr)
+library(tm)
+```
+
+## Retrieving firm addresses from SEC website
+
+The SIC code for industries are available for lookup: [SIC code lookup](https://www.sec.gov/info/edgar/siccodes.htm) 
+
+We analyze the following industries: 
+
+* 1400: MINING & QUARRYING OF NONMETALLIC MINERALS (NO FUELS)
+* 5734: RETAIL-COMPUTER & COMPUTER SOFTWARE STORES
+
+```{r sic-defn}
+SIC.CODES <- c(1400, 5734)
+SIC.NAMES <- c("SIC 1400:Mining","SIC 5734:Retail computer")
+```
+
+Define a function that searches all firms in a given industry from the SEC website:
+```{r search-firm}
+MAX.PAGE <- 5 # maximum number of pages to be read (each page contains 100 firms)
+
+ConstructFirmDF <- function(sic) {
+  i <- 0
+  continue_indic = TRUE #always continue to search
+  firm.df <- data.frame(firm_code=character(),compnay=character(),state=character())
+  # Create an empty data frame to store information, The data frame contains three columns:
+    # firm_code: stores the CIK
+    # company  : company name
+    # state    : the state of operation
+  while (continue_indic){
+    search_url <- paste('https://www.sec.gov/cgi-bin/browse-edgar?',
+                      'action=getcompany&SIC=',sic,
+                      '&owner=exclude&match=&start=',i*100,'&count=100&hidefilings=0',
+                      sep="") #paste the sic code(for industry) into the search engine
+  
+    search_info <- GET(search_url) #fetch the html file
+    parsed_search <- htmlParse(search_info) #use html Parser
+    info <- try( data.frame(readHTMLTable(parsed_search)),TRUE) 
+    # If the page has an empty table, it means we reach the end of the search
+    # The info will contain a string fetched from the HTML file
+    i <- i+1 #Search for next 100 records
+    if (typeof(info) != "list"|| (i > MAX.PAGE)||dim(info)[1] == 0 ) {
+      break #If the info returns text, stop searching
+    }
+    names(info) <- c("firm_code","company","state") #Rename the list to match the column names
+    firm.df <- rbind(firm.df,info) #Merge the search results with the large data frame
+  }
+  
+  return (firm.df)
+}#End of ConstructFirmDF
+
+
+firm.df.1 <- ConstructFirmDF(SIC.CODES[1]) #Search for 100 records for firm 1
+firm.df.2 <- ConstructFirmDF(SIC.CODES[2]) #Searcg for 100 records for firm 2
+print(head(firm.df.1))
+print(head(firm.df.2))
+```
+
+For each individual firm, find the location in the firm's home page.
+```{r}
+GetLocation <- function(firm_code){
+  url <- paste('https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=',
+               firm_code,'&owner=include&count=40&hidefilings=0',sep = "")
+  firm_page <- read_html(url)
+  addr_str <- firm_page %>% html_nodes(".mailer") %>% html_text() 
+  mail_addr <- addr_str[1] %>% strsplit("\n") 
+  mail_addr <- mail_addr[[1]][-1] %>% str_trim() %>% str_c(collapse = "\n")
+  
+  # The first element is buisness address, the second is the mailing address
+  return(mail_addr)
+}
+
+firm.df.1$address <- sapply(firm.df.1$firm_code, GetLocation)
+firm.df.2$address <- sapply(firm.df.2$firm_code, GetLocation)
+
+print(head(firm.df.1))
+print(head(firm.df.2))
+```
+
+
+## Retrieving physical locations from addresses
+It turns out that company addresses are not sufficient for plotting -- we need geographical locations in terms of latitude and longitude as well. One good news is that `ggmap` can handle this; there is no need of Googling all firm locations manually.
+
+Construct the following function that returns the geolocation of `address`:
+```{r address-to-location}
+GetGeocode <- function (address) {
+  geocode(address, source = "dsk") # extract geocode using Data Science Toolkit
+}
+```
+
+For instance, the geocode of company `BOREALIS TECHNOLOGY CORP` from `https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=0001014767&owner=include&count=40&hidefilings=0` can be found by passing their business address:
+```{r address-to-location-example}
+address <- "4070 SILVER SAGE DR\nSTE 211\nCARSON CITY NV 89701" # demo address
+GetGeocode(address) # lon/lat of the demo address
+```
+where `lon` and `lat` indicate its longitude and latitude respectively.
+
+### Multiple locations
+Getting multiple locations can be done by using `lapply` function:
+```{r message=FALSE, warning=FALSE}
+firm.df.1.locations <- lapply(firm.df.1$address, GetGeocode) #Get all the longtitude and latitude 
+firm.df.2.locations <- lapply(firm.df.2$address, GetGeocode)
+print(head(firm.df.1.locations))
+```
+
+Note that some locations might not have been fetched due to errors (some addresses might not exist anymore). `lapply` performs broadcasting a given function (second parameter) to a vector (first parameter) and returns a list, which is why it is called *l*`apply`.
+
+To extract longitudes and latitudes, one can call the followings.
+```{r extract-lon-lat}
+firm.df.1.lons <- sapply(firm.df.1.locations, "[[", "lon") # extract lon elements from a list of lists
+firm.df.1.lats <- sapply(firm.df.1.locations, "[[", "lat") # extract lat elements from a list of lists
+firm.df.2.lons <- sapply(firm.df.2.locations, "[[", "lon") # extract lon elements from a list of lists
+firm.df.2.lats <- sapply(firm.df.2.locations, "[[", "lat") # extract lat elements from a list of lists
+location.df.1 <- data.frame(lon = firm.df.1.lons, lat = firm.df.1.lats)
+location.df.2 <- data.frame(lon = firm.df.2.lons, lat = firm.df.2.lats)
+print(head(location.df.1))
+```
+
+## Plotting locations
+First, construct a combined `data.frame` for plot:
+
+```{r}
+location.df.1$SIC <- SIC.NAMES[1]
+location.df.2$SIC <- SIC.NAMES[2]
+
+location.df <- rbind(location.df.1, location.df.2) %>%
+  na.omit() # remove rows whose firm locations are not found
+print(head(location.df))
+```
+
+
+
+Plot on the world map:
+```{r plot-locations-world, warning=FALSE}
+ggplot(location.df, aes(x=lon, y=lat, color=SIC)) + 
+  borders("world", colour="gray50", fill="white") +
+  geom_point(size=4) +
+  labs(x = "Longitude", y = "Latitude", title = "Firm locations") +
+  theme_bw() +
+    theme(legend.position="bottom")
+```
+
+And plot on the US map:
+```{r plot-locations-us, warning=FALSE}
+ggplot(location.df, aes(x=lon, y=lat, color=SIC)) + 
+  geom_map(data=map_data("state"), map=map_data("state"), # draw borders based on USA.MAP
+          aes(long, lat, map_id=region),
+          color="gray30", fill=NA) +
+  coord_cartesian(xlim = c(-130, -65), ylim = c(25, 50)) + # lat/long on lin US 
+  geom_point(size=4) +
+  labs(x = "Longitude", y = "Latitude", title = "Firm locations, in US") +
+  theme_bw() +
+    theme(legend.position="bottom")
+
+```
+
+

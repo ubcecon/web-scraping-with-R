@@ -1,0 +1,96 @@
+---
+title: "Yahoo Finance"
+author: "Jasmine Hao and Chiyoung Ahn"
+date: "November 12, 2018"
+# output: html_document
+output:
+  md_document:
+    variant: markdown_github
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+# install.packages("rvest") # uncomment and run this line if rvest is not installed
+# install.packages("dplyr") # uncomment and run this line if dplyr is not installed
+# install.packages("stringr") # uncomment and run this line if stringr is not installed
+# install.packages("ggmap") # uncomment and run this line if ggmap is not installed
+library(rvest)
+library(httr)
+library(dplyr)
+library(stringr)
+library(XML)
+library(RCurl)
+```
+
+```{r}
+ticker_list <- c("LULU")
+yahoo_url <- "https://finance.yahoo.com/quote/LULU/analysis?p=LULU&.tsrc=fin-srch"
+url_file <- GET(yahoo_url)
+web_page_parsed <- htmlParse(url_file, encoding = "UTF-8")
+tables <- readHTMLTable(web_page_parsed)
+print(head(tables))
+```
+Data frame with Ticker, ind, quarter, value
+https://finance.yahoo.com/quote/AROC/analysis?p=AROC&.tsrc=fin-srch
+
+http://markets.money.cnn.com/Marketsdata/Sectors
+
+```{r }
+industrial_list <- c("AROC","BHGE","BAS","BRS","CJ","WHD","CRR","CLB","CCLP","DWSN","DRQ") 
+energy_list <- c("ANDX","CVI","CVRR","DK","ENBL","HFC","MPC","NS","PBF","PBFX","PSX")
+
+get_table <- function(ticker_list){
+  industry_trend <- data.frame()
+  for (ticker in ticker_list){
+    yahoo_url <- paste("https://finance.yahoo.com/quote/",ticker,"/analysis?p=",
+                       ticker,"&.tsrc=fin-srch",sep="")
+    web_page_parsed <- htmlParse(GET(yahoo_url), encoding = "UTF-8")
+    tables <- readHTMLTable(web_page_parsed)
+    EPS_trend <- tables[[3]][1,-1]
+    EPS_trend$Ticker <- ticker
+    # names(EPS_trend)  <-  c("Current Qtr.","Next Qtr.","Current Year"," Next Year","Ticker")
+    names(EPS_trend)  <-  c("10/30/2017","1/30/2018","4/29/2018","7/30/2018","Ticker")
+    industry_trend <- rbind(industry_trend,EPS_trend)
+  }
+  return(industry_trend)
+}
+
+```
+
+
+```{r }
+industrial_trend <- get_table(industrial_list)
+energy_trend <- get_table(energy_list)
+print(industrial_trend)
+print(energy_trend)
+```
+
+```{r}
+library(reshape)
+industrial_trend_melt <- melt(industrial_trend,c("Ticker")) 
+industrial_trend_melt$Industry <- "Industrial"
+energy_trend_melt <- melt(energy_trend,c("Ticker")) 
+energy_trend_melt$Industry <- "Energy"
+
+stock_trend <- rbind(energy_trend_melt,industrial_trend_melt)
+names(stock_trend) <- c("Ticker","Time","EPS","Industry")
+print(head(stock_trend))
+```
+
+## Drawing plots
+First, note that `EPS` is saved as a factor by `reshape` -- to convert the values back in numerics, *unfactoring* is needed (see https://stackoverflow.com/questions/3418128/how-to-convert-a-factor-to-integer-numeric-without-loss-of-information):
+
+```{r unfactor, warnings=F}
+stock_trend$EPS <- as.numeric(levels(stock_trend$EPS))[stock_trend$EPS]
+```
+
+Let's draw a plot!
+```{r plot-trend}
+library(ggplot2)
+ggplot2::ggplot(stock_trend, aes(x = Time, y = EPS, 
+                                  group = Ticker, color = Industry)) +
+  geom_point(size = 2) +
+  geom_line(size = 1.2, alpha = 0.5) +
+  theme_bw() +
+  theme(legend.position="bottom")
+```

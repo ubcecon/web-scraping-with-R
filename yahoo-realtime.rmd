@@ -1,0 +1,84 @@
+---
+title: "Yahoo_Realtime"
+author: "Jasmine Hao"
+date: "November 13, 2018"
+output:
+  md_document:
+    variant: markdown_github
+    
+---
+This example uses preliminary R packages without advanced function. The main goal is to parse an html web page and extract tables from the web page.
+## Preload packages
+This script requires httr, XML, stringr.
+We are using GET function from httr
+httr: https://cran.r-project.org/web/packages/httr/httr.pdf
+
+For parsing the XML, we use the htmlParse,readHTMLTable from XML
+https://cran.r-project.org/web/packages/XML/XML.pdf
+
+The stringr package is used for parsing the strings.
+http://edrub.in/CheatSheets/cheatSheetStringr.pdf
+
+dplyr cheat sheet:
+https://www.rstudio.com/wp-content/uploads/2015/02/data-wrangling-cheatsheet.pdf
+
+```{r setup, warning=FALSE}
+for (pkg in c("rvest","httr","dplyr","stringr","XML","RCurl","ggplot2","reshape")){
+ if (!pkg %in% rownames(installed.packages())){install.packages(pkg)}
+}
+library(rvest)
+library(httr)
+library(dplyr)
+library(stringr)
+library(XML)
+library(RCurl)
+```
+
+## Realtime data collecting
+This section collect realtime data from yahoo finance currency page. Other pages are also available for data collect. Examples are listed below.
+```{r data}
+url_crypto <-"https://ca.finance.yahoo.com/cryptocurrencies"
+url_commo <- "https://ca.finance.yahoo.com/commodities"
+url_curr <- "https://ca.finance.yahoo.com/currencies"
+i = 0 
+currency_price <- data.frame()
+time_list <- c()
+while (i < 10){
+  web_page_parsed <- htmlParse(GET(url_curr), encoding = "UTF-8") #Parse the HTML
+  table <- readHTMLTable(web_page_parsed) #Extract table from HTML
+  table <- table[[1]][,1:3] #Only keep the 3rd table, digit part
+  names(table) <- c("Symb","Name","price") #Change dataframe name for easy merge
+  price_list <-as.numeric(strsplit(toString(table$price),",")[[1]])[1:28] #Process the data type, for all 28 FX price
+  name_list <- strsplit(toString(table$Name),",")[[1]][1:28] #Get the name of the FX
+  currency_price <- rbind(currency_price,price_list) #Merge the fetched data into the metadata
+  colnames(currency_price) <- name_list #Rename the columns of the metadata
+  time_list <- c(time_list,toString(Sys.time())) #Append the time to time_list
+  Sys.sleep(5) #Sleep for 5 secs
+  i = i + 1
+}
+currency_price$time <- time_list
+print(head(currency_price))
+```
+
+## Plot the  Data from the last 10 seconds
+Reshape
+https://www.statmethods.net/management/reshape.html
+
+GGplot2 cheat sheet:
+https://www.rstudio.com/wp-content/uploads/2015/03/ggplot2-cheatsheet.pdf
+
+```{r, warning=FALSE}
+library(ggplot2)
+library(reshape)
+price_plot <- melt(currency_price,"time")
+ggplot2::ggplot(price_plot,aes(x = time, 
+                               y = value, 
+                                  group = variable, color = variable)) + 
+                                geom_line(size = 1.2, alpha = 0.5)   
+```
+
+## Real time example
+These two examples use the same script. Instead we setting the Sys.sleep() to 60 seconds and collect 100 data points. 
+
+![](Yahoo_realtime_files/figure-markdown_github/GBP_USD.png)
+![](Yahoo_realtime_files/figure-markdown_github/GBP_JPY.png)

@@ -1,0 +1,273 @@
+---
+title: "Text mining 101 with `rvest`"
+author: "Chiyoung Ahn"
+date: "November 7, 2018"
+# output: html_document
+output:
+  md_document:
+    variant: markdown_github
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+# install.packages("rvest") # uncomment and run this line if rvest is not installed
+# install.packages("dplyr") # uncomment and run this line if dplyr is not installed
+# install.packages("stringr") # uncomment and run this line if stringr is not installed
+# install.packages("stringi") # uncomment and run this line if stringi is not installed
+library(rvest)
+library(dplyr)
+library(stringr)
+library(stringi)
+```
+
+*DISCLAIMER: Do not exploit the instruction below to hammer the AEA website; MIT license applies.*
+
+Learning goals:
+
+* understand basics of HTML and analyze websites
+* exploit HTML structures to grab data
+* extract abstracts of journal articles from AER
+
+A website for an article usually looks like this:
+
+[https://www.aeaweb.org/articles?id=10.1257/aer.20150154](https://www.aeaweb.org/articles?id=10.1257/aer.20150154)
+
+To access a journal article with URL, you need DOI and AER identifier. For instance, the URL for the article above should be accessed with DOI `10.1257` and AER identifier `20150154`. Good news is that you can find all article links (in theory) from a webpage for each *issue*:
+
+AEA journal website is located at
+
+[https://www.aeaweb.org/journals/](https://www.aeaweb.org/journals/)
+
+Go to AER, then you will find
+
+[https://www.aeaweb.org/journals/aer/issues](https://www.aeaweb.org/journals/aer/issues)
+
+Click on one issue, you will find all articles contained in each issue!
+
+# Text mining with `rvest`
+## Extracting all issues
+AER website is well-made -- using developer tools from a web browser, one can see that all articles are all contained in classes whose names begin with `journal-preview`.
+
+Also, using `SelectorGadget`, one can easily find that all journal issues are contained in nodes with `a`. Let's extract all the HTML nodes with `a` (which is, in fact, the name of nodes being used for links in all websites):
+```{r extract-issues}
+issues.root.html <- read_html("https://www.aeaweb.org/journals/aer/issues")
+issue.urls <- issues.root.html %>%
+  html_nodes(".journal-preview") %>% # . indicates a class name
+  html_nodes("a") # all links
+print(issue.urls)
+```
+### Extracting URLs
+To grab URLs, run the followings:
+```{r extract-issues-filter}
+issue.urls <- issues.root.html %>%
+  html_nodes(".journal-preview") %>% # . indicates a class name
+  html_nodes("a") %>% # all links
+  html_attr("href") %>% # extract the links specified by `href`
+  as_data_frame() %>% # convert the links to a data frame object for filtering
+print(issue.urls$value) # since issue.urls is a data.frame, need to extract $value
+```
+
+but note that they are all *relative* (to the AER website home) URLs. Thus, to get the correct URLs, `https://www.aeaweb.org/` has to be appended in front. In R this can be done by using `paste0`, which can be used for vectorized strings too.
+
+```{r extract-issues-filter-url}
+issue.urls <- paste0("https://www.aeaweb.org", issue.urls$value)
+print(head(issue.urls))
+```
+### Extracting years of publication
+We need years of publications for word clouds too. Note that the texts for the links all contain years of publication too! To grab the texts for the links, run the followings:
+```{r extract-years-of-publication-full}
+issue.years <- issues.root.html %>%
+  html_nodes(".journal-preview") %>% # . indicates a class name
+  html_nodes("a") %>% # all links
+  html_text %>% # extract the links specified by `href`
+  as_data_frame() %>% # convert the links to a data frame object for filtering
+print(issue.years$value)
+```
+
+To parse the year, note that all years are the second words of each text:
+```{r extract-years-of-publication}
+issue.years <- word(issue.years$value, start = 2, end = 2) # extract the second words
+```
+
+Combining `issue.urls` and `issue.years`, we can construct the following `data.frame` called `issue.df` that contains all AER issues available in AEA website and their corresponding years of publication:
+
+```{r issue-df-construction}
+issue.df <- data.frame(issue = issue.urls, year = issue.years)
+print(head(issue.df))
+```
+
+
+## Extracting article names and URLs from a single issue
+The following script extracts the HTML of the journal issue with `ISSUE.NUMBER = 475`:
+```{r extract-html}
+issue.html <- read_html("https://www.aeaweb.org/issues/475")
+```
+
+It's time to use SelectorGadget ([https://selectorgadget.com/](https://selectorgadget.com/)) to figure out how each webpage was constructed. It is not difficult to see that
+- node with `section h1` contains the title of the journal (`American Economic Review`)
+- node with `section h2` contains the volume number and date of publication (`Vol. 107 No. 8 August 2017`)
+- nodes with `h3 a` contains the titles of all articles appeared in the issue (`Front Matter`, `Partner Choice, Investment in Children, and the Marital College Premium`, ...)
+
+### Journal name
+To extract the journal name, 
+```{r extract-title}
+journal.name <- issue.html %>% 
+  html_nodes("section h1") %>% # access the html node with `section h1`
+  html_text() # filter the html data so that we have only string data
+
+print(journal.name)
+```
+
+### Year of publication
+Similarly, we can extract the year of publication.
+```{r extract-year}
+year.of.pub <- issue.html %>% 
+  html_nodes("section h2") %>% # access the html node with `section h2`
+  html_text() # filter the html data so that we have only string data
+
+print(year.of.pub) # this line contains volume #/month/year. Extract the very last word for year!
+
+```
+Note that the text we extracted contains volume number AND month of publication AND year of publication. We can use `stringr` to extract the very last word, which is the year of publication.
+```{r extract-year2}
+year.of.pub <- stri_extract_last_words(year.of.pub) # extract the last word
+print(year.of.pub)
+```
+
+### Article titles
+Similarly, for article titles:
+```{r}
+article.titles <- issue.html %>% 
+  html_nodes("h3 a") %>% # access the html node with `h3 a`
+  html_text() # filter the html data so that we have only string data
+
+print(article.titles)
+```
+
+### Article URLs
+Now it's time to grab article URLs from each issue! To do so, simply change `html_text()` in piping to `html_attr("href")` since we are looking for the URL that each journal article links to.
+
+```{r}
+article.urls <- issue.html %>% 
+  html_nodes("h3 a") %>% # access the html node with `h3 a`
+  html_attr("href") # access what the node links to
+
+print(article.urls)
+```
+
+Note that the URLs we get are not the full URLs (which we need to get access to the HTML data), rather the URLs relative to the home website (`https://www.aeaweb.org/`). Hence, to get the complete URLs, we have to put `https://www.aeaweb.org` in front. To do so, use `paste0` in R. Note that `paste0` can be applied to vector too.
+
+```{r}
+article.urls <- paste0("https://www.aeaweb.org", article.urls)
+article.urls
+```
+### Extracting a single abstract
+Let's read the abstract:
+```{r}
+(read_html(article.urls[2]) %>%
+  html_nodes("section section") %>%
+  html_text())[3]
+```
+
+
+## Extracting multiple abstracts
+Note that we have a list of URLs to all AER issues (from March 1999)! -- hence we can get all abstracts by iterating over all issue URLs.
+
+To do so, construct a function that returns the abstract article given an article URL.
+
+
+```{r}
+GetAbstract <- function (article.url) {
+  (read_html(article.url) %>%
+    html_nodes("section section") %>%
+    html_text())[3]
+}
+```
+
+Second, construct a function that returns the URLs of articles given an issue URL.
+```{r}
+GetArticleURLs <- function (issue.url) {
+  issue.html <- read_html(issue.url)
+  article.urls <- issue.html %>% 
+    html_nodes("h3 a") %>% # access the html node with `h3 a`
+    html_attr("href") # access what the node links to
+  paste0("https://www.aeaweb.org", article.urls) # transform relative urls
+}
+```
+
+The abstracts of all articles contained in the issue with the URL `https://www.aeaweb.org/issues/475` can be extracted by `sapply`ing `GetAbstract` over the article URLs obtained by `GetArticleURLs("https://www.aeaweb.org/issues/475")`, which will return a vector of abstracts:
+```{r}
+abstracts <- sapply(GetArticleURLs("https://www.aeaweb.org/issues/475"), GetAbstract)
+abstracts <- abstracts[2:length(abstracts)] # the first abstract is empty (Front Matter)
+print(abstracts[1])
+```
+
+## Drawing word clouds
+
+```{r cloud-setup}
+# install.packages("wordcloud") # uncomment and run this line if ggwordcloud is not installed
+# install.packages("tm") # uncomment and run this line if tm is not installed
+library(wordcloud)
+library(tm)
+```
+
+For text analysis, one can use the package called `tm` (named after **Text Mining**):
+```{r}
+text <- toString(abstracts) # combine all abstracts together
+docs <- Corpus(VectorSource(text)) # construct a Corpus object based on text
+inspect(docs)
+```
+
+Note that there are a number of words that we do not need for analysis, like `\t` (for tab), `\n` (for line change) and `Abstract` (title of each abstract):
+
+```{r filter-words-1}
+toSpace <- content_transformer(function (x, pattern ) gsub(pattern, " ", x))
+docs <- tm_map(docs, toSpace, "\t") # replace \t with space
+docs <- tm_map(docs, toSpace, "\n") # replace \n with space
+docs <- tm_map(docs, toSpace, "Abstract") # replace Abstract (title of each abstract) with space
+inspect(docs)
+```
+
+Remove stop words (aka *filler words*), numbers, punctuations, and other special characters that can appear. Also, change all the words to lower case:
+```{r filter-words-2}
+docs <- tm_map(docs, content_transformer(tolower)) # lower case
+docs <- tm_map(docs, removeWords, stopwords("en")) # remove stop words
+docs <- tm_map(docs, removePunctuation) # remove punctuations
+docs <- tm_map(docs, removeNumbers) # remove numbers
+docs <- tm_map(docs, stripWhitespace) # remove extra whitespaces
+removeSpecialChars <- function(x) gsub("[^a-zA-Z0-9 ]"," ",x)
+docs <- tm_map(docs, removeSpecialChars) # remove other special characters
+inspect(docs)
+```
+
+And here's a word frequency table for the issue:
+```{r construct-word-freq-table}
+docs.mat <- as.matrix(TermDocumentMatrix(docs)) # document matrix
+docs.mat.sorted <- sort(rowSums(docs.mat),decreasing=TRUE) # sort them out
+freq.table <- data.frame(word = names(docs.mat.sorted),freq=docs.mat.sorted) # construct a freq table
+head(freq.table, 10)
+```
+
+And the word cloud:
+```{r construct-word-cloud, message=F, warning=F}
+set.seed(1234)
+wordcloud(words = freq.table$word, freq = freq.table$freq, min.freq = 1,
+          max.words=200, random.order=FALSE, rot.per=0.00, 
+          colors=brewer.pal(8, "Dark2"))
+```
+
+
+### Extensions
+One can combine all the works together above to generate word cloud plots for abstracts by years, instead of a single issue:
+
+Here's one for 2014:
+
+![Wordcloud for 2014](aer-articles_files_aux/figure-markdown_github/wordcloud-2014.png)
+
+One for 2016:
+
+![Wordcloud for 2016](aer-articles_files_aux/figure-markdown_github/wordcloud-2016.png)
+
+One for 2018:
+
+![Wordcloud for 2018](aer-articles_files_aux/figure-markdown_github/wordcloud-2018.png) 

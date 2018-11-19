@@ -30,7 +30,7 @@ Extracting all issues
 
 AER website is well-made -- using developer tools from a web browser, one can see that all articles are all contained in classes whose names begin with `journal-preview`.
 
-Also, using `SelectorGadget`, one can easily find that all journal issues are contained in nodes with `a`. Let's extract all the HTML nodes with `a` (which is, in fact, the name of nodes being used for links in all websites):
+To grab URL links to all issues, first install [SelectorGadget](https://selectorgadget.com/) in Chrome. Activate `SelectorGadget` and hover your mouse over a link to any issue available in the webpage. One can easily find that all journal issues are contained in nodes with `a`. Let's extract all the HTML nodes with `a` (which is, in fact, the name of nodes being used for links in all websites):
 
 ``` r
 issues.root.html <- read_html("https://www.aeaweb.org/journals/aer/issues")

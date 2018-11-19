@@ -141,4 +141,6 @@ Real time example
 
 These two examples use the same script. Instead we setting the Sys.sleep() to 60 seconds and collect 100 data points.
 
-![](Yahoo_realtime_files/figure-markdown_github/GBP_USD.png) ![](Yahoo_realtime_files/figure-markdown_github/GBP_JPY.png)
+![](yahoo-realtime_files_aux/figure-markdown_github/GBP_USD.png) 
+
+![](yahoo-realtime_files_aux/figure-markdown_github/GBP_JPY.png) 
